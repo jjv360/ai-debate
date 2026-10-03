@@ -4,7 +4,7 @@
  */
 import { judgeRound, planDebate, buildParticipantMessages, cleanReply, PARTICIPANT_COLORS, type TranscriptEntry } from './agents'
 import { addMessage, getCache, getDebate, getSettings, listDebates, listMessages, randomId, setCache, updateDebate } from './db'
-import { chat, fetchModels, OpenRouterError, type ModelInfo } from './openrouter'
+import { chat, fetchModels, OpenRouterError, supportsTools, WEB_TOOLS, type ModelInfo } from './openrouter'
 import type { Debate, Message } from './types'
 
 export type Phase = 'planning' | 'debating' | 'judging'
@@ -43,12 +43,14 @@ export function isRunning(debateId: string): boolean {
 }
 
 // ---------- models (cached for offline / speed) ----------
+// v2: entries include supported_parameters (needed to know which models support tools)
+const MODELS_CACHE = 'models-v2'
 export async function getModels(force = false): Promise<ModelInfo[]> {
-  const cached = await getCache<ModelInfo[]>('models')
+  const cached = await getCache<ModelInfo[]>(MODELS_CACHE)
   if (!force && cached && Date.now() - cached.savedAt < 6 * 3600_000) return cached.data
   try {
     const models = await fetchModels()
-    await setCache('models', models)
+    await setCache(MODELS_CACHE, models)
     return models
   } catch (e) {
     if (cached) return cached.data
@@ -120,10 +122,37 @@ export function forgetRunner(debateId: string) {
 }
 
 // ---------- the loop ----------
+/** Participant failure notices are shared with the agents; other system/app errors are not. */
+function isParticipantNotice(m: Message): boolean {
+  // Older notices predate the `about` field, so fall back to their wording
+  return m.kind === 'error' && m.author === 'system' && (!!m.about || / failed to respond: /.test(m.content))
+}
+
 function toTranscript(msgs: Message[]): TranscriptEntry[] {
   return msgs
-    .filter((m) => m.kind !== 'error' && m.author !== 'system')
+    .filter((m) => isParticipantNotice(m) || (m.kind !== 'error' && m.author !== 'system'))
     .map((m) => ({ author: m.author, authorName: m.authorName, content: m.content, round: m.round }))
+}
+
+/** Human-readable reason for a failed request */
+function describeError(e: any): string {
+  if (e instanceof OpenRouterError) {
+    if (e.status === 401 || e.status === 402) return `OpenRouter key problem: ${e.message}`
+    if (e.status === 403) return `OpenRouter refused the request (key limit, model restriction or moderation): ${e.message}`
+    if (e.status === undefined) return e.message
+    return `OpenRouter error ${e.status}: ${e.message}`
+  }
+  return e?.message || String(e)
+}
+
+/** Runs a moderator request; failures stop the debate (it can be resumed) with a clear message. */
+async function asModerator<T>(model: string, signal: AbortSignal, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn()
+  } catch (e) {
+    if (signal.aborted) throw e
+    throw new Error(`The moderator (${model}) failed to respond, so the debate was stopped: ${describeError(e)}. Resume the debate to try again.`)
+  }
 }
 
 async function addCost(debateId: string, cost: number) {
@@ -146,7 +175,9 @@ async function run(debateId: string, runner: Runner) {
     await updateDebate(debateId, { status: 'planning' })
     let models: ModelInfo[] = []
     try { models = await getModels() } catch { /* plan without list */ }
-    const { plan, cost } = await planDebate({ apiKey, model: debate.overviewModel, topic: debate.topic, models, signal })
+    const { plan, cost } = await asModerator(debate.overviewModel, signal, () =>
+      planDebate({ apiKey, model: debate.overviewModel, topic: debate.topic, models, signal }),
+    )
     if (signal.aborted) return
     await addCost(debateId, cost)
     debate = await updateDebate(debateId, {
@@ -169,6 +200,14 @@ async function run(debateId: string, runner: Runner) {
   }
 
   // ----- rounds -----
+  // Models that can use web tools this session. If the model list is unavailable, tools are skipped.
+  let toolModels: ModelInfo[] = []
+  if (settings.webTools) {
+    try { toolModels = await getModels() } catch { /* no web tools */ }
+  }
+  /** Models whose tool requests were rejected - retried without tools for the rest of the run */
+  const toolsRejected = new Set<string>()
+
   for (;;) {
     if (signal.aborted) return
     debate = (await getDebate(debateId)) as Debate
@@ -180,15 +219,16 @@ async function run(debateId: string, runner: Runner) {
     emit()
 
     let posted = 0
-    let fatal: unknown = null
+    let failed = 0
     await Promise.all(
       debate.participants.map(async (p) => {
         try {
-          const res = await chat({
+          const ask = (webAccess: boolean) => chat({
             apiKey,
             model: p.model,
             signal,
             maxTokens: 4000,
+            tools: webAccess ? WEB_TOOLS : undefined,
             messages: buildParticipantMessages({
               topic: debate.topic,
               points: debate.points,
@@ -196,6 +236,7 @@ async function run(debateId: string, runner: Runner) {
               others: debate.participants.filter((o) => o.id !== p.id),
               transcript,
               round,
+              webAccess,
             }),
             onDelta: (text) => {
               if (!runners.has(debateId)) return
@@ -203,6 +244,17 @@ async function run(debateId: string, runner: Runner) {
               emit()
             },
           })
+          const webAccess = settings.webTools && !toolsRejected.has(p.model) && supportsTools(toolModels, p.model)
+          let res
+          try {
+            res = await ask(webAccess)
+          } catch (e) {
+            // e.g. "No endpoints found that support tool use" - fall back to a plain request
+            if (!webAccess || signal.aborted || !(e instanceof OpenRouterError) || (e.status !== 400 && e.status !== 404)) throw e
+            console.warn(`Web tools rejected for ${p.model}, retrying without:`, e.message)
+            toolsRejected.add(p.model)
+            res = await ask(false)
+          }
           if (signal.aborted) return
           await addCost(debateId, res.cost)
           const reply = cleanReply(res.content, p.name)
@@ -213,8 +265,19 @@ async function run(debateId: string, runner: Runner) {
           }
         } catch (e: any) {
           if (signal.aborted) return
-          if (e instanceof OpenRouterError && (e.status === 401 || e.status === 402)) fatal = e
-          await addMessage({ debateId, author: 'system', authorName: 'System', content: `${p.name} (${p.model}) failed to respond: ${e?.message || e}`, round, kind: 'error' })
+          // Participant failures don't stop the debate: the notice is shown in the chat and
+          // shared with the other agents (and the moderator) so they know why this one is silent.
+          failed++
+          console.warn(`${p.name} (${p.model}) failed:`, e)
+          await addMessage({
+            debateId,
+            author: 'system',
+            authorName: 'System',
+            content: `${p.name} (${p.model}) failed to respond: ${describeError(e)}`,
+            round,
+            kind: 'error',
+            about: p.id,
+          })
         } finally {
           const { [p.id]: _drop, ...rest } = runner.state.drafts
           runner.state.drafts = rest
@@ -223,7 +286,11 @@ async function run(debateId: string, runner: Runner) {
       }),
     )
     if (signal.aborted) return
-    if (fatal) throw fatal
+    // Nobody could respond (e.g. offline, or the key is invalid / out of credits): stop rather than loop
+    if (failed > 0 && failed === debate.participants.length) {
+      await updateDebate(debateId, { round })
+      throw new Error('No participant was able to respond this round, so the debate was stopped. Check your connection and OpenRouter key, then resume the debate.')
+    }
 
     debate = await updateDebate(debateId, { round })
 
@@ -232,7 +299,7 @@ async function run(debateId: string, runner: Runner) {
     emit()
     const forceEnd = round >= debate.maxRounds
     const all = await listMessages(debateId)
-    const { verdict, cost } = await judgeRound({
+    const { verdict, cost } = await asModerator(debate.overviewModel, signal, () => judgeRound({
       apiKey,
       model: debate.overviewModel,
       topic: debate.topic,
@@ -244,7 +311,7 @@ async function run(debateId: string, runner: Runner) {
       everyonePassed: posted === 0,
       forceEnd,
       signal,
-    })
+    }))
     if (signal.aborted) return
     await addCost(debateId, cost)
 

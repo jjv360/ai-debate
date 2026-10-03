@@ -5,7 +5,8 @@
 import { chat, type ChatMessage, type ModelInfo } from './openrouter'
 
 export interface TranscriptEntry {
-  author: string // 'user' | 'moderator' | 'system' | participant id
+  /** 'user' | 'moderator' | 'system' (technical notices, e.g. a participant failing to respond) | participant id */
+  author: string
   authorName: string
   content: string
   round: number
@@ -47,6 +48,7 @@ export function extractJson<T>(text: string): T {
 function label(e: TranscriptEntry): string {
   if (e.author === 'user') return 'User (the human host)'
   if (e.author === 'moderator') return 'Moderator'
+  if (e.author === 'system') return 'System notice'
   return e.authorName
 }
 
@@ -55,7 +57,6 @@ function transcriptText(entries: TranscriptEntry[]): string {
   let round = -1
   const out: string[] = []
   for (const e of entries) {
-    if (e.author === 'system') continue
     if (e.round !== round) {
       round = e.round
       out.push(`--- Round ${round} ---`)
@@ -135,6 +136,8 @@ export function buildParticipantMessages(args: {
   others: { name: string; stance: string }[]
   transcript: TranscriptEntry[]
   round: number
+  /** Whether this participant has web search / fetch tools available */
+  webAccess?: boolean
 }): ChatMessage[] {
   const { me } = args
   const system = `You are ${me.name}, one of the participants in a group chat where AI agents debate a question and try to reach a conclusion everyone can agree on, or at least settle for.
@@ -152,13 +155,15 @@ Other participants:
 ${args.others.map((o) => `- ${o.name}: ${o.stance || '(no assigned side, giving their own view)'}`).join('\n')}
 
 There is also a Moderator who may step in, and the human host ("User") who may chime in at any time. When the User says something, take it seriously and respond to it.
+"System notice" messages are posted by the app when a participant could not respond due to a technical problem (e.g. a network or API error). That participant isn't ignoring anyone; don't wait for their reply, and you may briefly acknowledge their absence if relevant.
 
 How to behave:
 - This is a chat, not an essay. Keep messages short and conversational: usually 1-3 short paragraphs. Markdown is OK, but avoid big headings.
 - Engage directly with what others said, by name. Concede good points, challenge weak ones, propose compromises.
 - Argue in good faith. Hold your position when you have good reasons, but genuinely update when persuaded. The goal is the best answer, not winning.
 - Don't repeat points that have already been made. If you agree with where things are going, say so briefly.
-- Messages appear as "[Name]: text". Do NOT prefix your own reply with your name.
+- Messages appear as "[Name]: text". Do NOT prefix your own reply with your name.${args.webAccess ? `
+- You have web search and web fetch tools. Use them when current facts, data or sources would strengthen or check a claim (yours or someone else's), but don't search for things you already know well. Cite sources briefly as markdown links.` : ''}
 - If you have nothing useful to add right now (e.g. you are waiting for someone else to respond, or you already agree), reply with exactly ${PASS_TOKEN} and nothing else to stay silent this round.`
 
   const messages: ChatMessage[] = [{ role: 'system', content: system }]
@@ -168,7 +173,6 @@ How to behave:
     pending = []
   }
   for (const e of args.transcript) {
-    if (e.author === 'system') continue
     if (e.author === me.id) {
       flush()
       messages.push({ role: 'assistant', content: e.content })
@@ -232,7 +236,7 @@ Decide one status:
 - "continue": real disagreement remains and progress is still being made, or someone has an unanswered question/point, or the User recently said something that hasn't been fully addressed.
 - "consensus": all participants now explicitly agree on an answer.
 - "settled": they don't fully agree but have converged on a position everyone can live with, or they are clearly just repeating themselves.
-Do not end the debate before every participant has responded to the others' arguments at least once. Rounds so far: ${args.round} of a maximum ${args.maxRounds}.
+Do not end the debate before every participant has responded to the others' arguments at least once. "System notice" messages report participants that failed to respond because of a technical error (network, API key, credits, etc.); don't hold the debate open waiting on a participant who keeps failing, and mention their absence in the conclusion if it matters. Rounds so far: ${args.round} of a maximum ${args.maxRounds}.
 
 You may optionally include a short "note" (1-2 sentences) that will be posted in the chat as the Moderator, to steer the debate: e.g. highlight an unresolved point, ask someone to respond to a specific argument, or push them towards a compromise when going in circles. Leave it empty most of the time; only intervene when it genuinely helps. Never include a note when ending.
 

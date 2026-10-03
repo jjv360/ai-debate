@@ -242,6 +242,8 @@ textarea { resize: none; }
 .connected { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; }
 .key-input { display: flex; gap: 8px; width: 100%; }
 .error-text { color: var(--red); font-size: 0.85rem; }
+.toggle-row { display: flex; align-items: center; gap: 10px; font-size: 0.9rem; cursor: pointer; }
+.toggle-row input[type="checkbox"] { width: 16px; height: 16px; padding: 0; margin: 0; accent-color: var(--accent); cursor: pointer; }
 
 .toast {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 60;

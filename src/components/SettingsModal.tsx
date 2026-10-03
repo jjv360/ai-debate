@@ -145,6 +145,15 @@ export function SettingsModal({ reason, onClose }: Props) {
           <p className="muted">Safety limit. When reached, the moderator wraps up with the best answer so far.</p>
           <input type="number" min={1} max={500} value={rounds} onChange={(e) => setRounds(e.target.value)} onBlur={(e) => commitRounds(e.target.value)} className="narrow" />
         </section>
+
+        <section className="settings-section">
+          <h3>Web access</h3>
+          <label className="toggle-row">
+            <input type="checkbox" checked={settings.webTools} onChange={(e) => saveSettings({ webTools: e.target.checked })} />
+            <span>Let participants search the web and read pages</span>
+          </label>
+          <p className="muted">Only for models that support tool calling. Searches use the model's built-in search when available, and add a small cost per search on OpenRouter.</p>
+        </section>
       </div>
     </div>
   )

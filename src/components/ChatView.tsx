@@ -201,6 +201,7 @@ export function ChatView({ debate, online, hasKey, onNeedKey, onMenu }: Props) {
           {drafts.map(([pid, t]) => { const p = byId.get(pid); return p ? <Draft key={'d' + pid} p={p} text={t} /> : null })}
           {phaseLabel && <div className="phase"><span className="typing"><i /><i /><i /></span> {phaseLabel}</div>}
           {!running && debate.status === 'paused' && <div className="phase muted">Debate paused. Resume it, or send a message to continue.</div>}
+          {!running && debate.status === 'error' && <div className="phase muted">Debate stopped due to an error. Resume it, or send a message to try again.</div>}
           {!running && debate.status === 'concluded' && <div className="phase muted">Debate finished. Send a message to reopen the discussion.</div>}
         </div>
       </div>

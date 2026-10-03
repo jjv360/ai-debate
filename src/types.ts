@@ -43,6 +43,8 @@ export interface Message {
   content: string
   round: number
   kind?: 'normal' | 'conclusion' | 'error'
+  /** For errors: the participant id the error is about. These are shown to the other agents too. */
+  about?: string
   model?: string
   createdAt: number
 }
@@ -53,6 +55,8 @@ export interface Settings {
   apiKey: string
   overviewModel: string
   maxRounds: number
+  /** Let participants use OpenRouter's web search / web fetch server tools (when their model supports tools) */
+  webTools: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -60,4 +64,5 @@ export const DEFAULT_SETTINGS: Settings = {
   apiKey: '',
   overviewModel: '~x-ai/grok-latest',
   maxRounds: 50,
+  webTools: true,
 }
