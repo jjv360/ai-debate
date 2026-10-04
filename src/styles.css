@@ -244,6 +244,33 @@ textarea { resize: none; }
 .error-text { color: var(--red); font-size: 0.85rem; }
 .toggle-row { display: flex; align-items: center; gap: 10px; font-size: 0.9rem; cursor: pointer; }
 .toggle-row input[type="checkbox"] { width: 16px; height: 16px; padding: 0; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.model-input { display: flex; gap: 8px; width: 100%; }
+.model-input input { flex: 1; min-width: 0; }
+.model-input .btn { height: auto; }
+
+/* ---------- model picker ---------- */
+.picker-backdrop { z-index: 55; }
+.picker { max-width: 640px; height: min(720px, 90vh); display: flex; flex-direction: column; overflow: hidden; padding-bottom: 12px; }
+.picker-search { margin-top: 6px; flex-shrink: 0; }
+.picker-legend { display: flex; justify-content: space-between; padding: 8px 10px 4px; flex-shrink: 0; }
+.picker-list { flex: 1; min-height: 0; overflow-y: auto; margin: 0 -10px; padding: 0 4px; }
+.picker-empty { padding: 24px 10px; text-align: center; font-size: 0.9rem; }
+.picker-group-head {
+  position: sticky; top: 0; z-index: 1; background: var(--panel); padding: 10px 8px 4px;
+  font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted);
+}
+.picker-group-head .muted { font-weight: 400; opacity: 0.7; margin-left: 4px; }
+.picker-item {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 7px 8px;
+  border: 1px solid transparent; border-radius: 8px; background: none; color: var(--text); font: inherit; cursor: pointer;
+  scroll-margin-top: 36px;
+}
+.picker-item.active { background: var(--panel-2); border-color: var(--border); }
+.picker-item.selected { border-color: #7c8cff66; background: #7c8cff14; }
+.picker-item-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.picker-item-name { font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.picker-item-id { font-size: 0.74rem; color: var(--muted); font-family: ui-monospace, 'JetBrains Mono', Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.picker-item-price { flex-shrink: 0; font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 .toast {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 60;

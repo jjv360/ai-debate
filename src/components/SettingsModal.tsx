@@ -4,6 +4,7 @@ import { getModels } from '../engine'
 import { useSettings } from '../hooks'
 import { checkKey, startPkce, type ModelInfo } from '../openrouter'
 import { DEFAULT_SETTINGS } from '../types'
+import { ModelPicker } from './ModelPicker'
 
 interface Props {
   reason?: string
@@ -20,6 +21,7 @@ export function SettingsModal({ reason, onClose }: Props) {
   const [rounds, setRounds] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [pickerOpen, setPickerOpen] = useState(false)
 
   useEffect(() => { getModels().then(setModels).catch(() => {}) }, [])
   useEffect(() => {
@@ -123,14 +125,22 @@ export function SettingsModal({ reason, onClose }: Props) {
         <section className="settings-section">
           <h3>Overview agent model</h3>
           <p className="muted">Plans the debate, moderates and decides when consensus is reached. Also used for participants unless your topic asks for specific models.</p>
-          <input
-            list="model-list"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            onBlur={(e) => commitModel(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && commitModel((e.target as HTMLInputElement).value)}
-            placeholder={DEFAULT_SETTINGS.overviewModel}
-          />
+          <div className="model-input">
+            <input
+              list="model-list"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              onBlur={(e) => commitModel(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && commitModel((e.target as HTMLInputElement).value)}
+              placeholder={DEFAULT_SETTINGS.overviewModel}
+            />
+            <button className="btn" onClick={() => setPickerOpen(true)} title="Browse models" aria-label="Browse models">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" />
+              </svg>
+              Browse
+            </button>
+          </div>
           <datalist id="model-list">
             {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
           </datalist>
@@ -155,6 +165,13 @@ export function SettingsModal({ reason, onClose }: Props) {
           <p className="muted">Only for models that support tool calling. Searches use the model's built-in search when available, and add a small cost per search on OpenRouter.</p>
         </section>
       </div>
+      {pickerOpen && (
+        <ModelPicker
+          value={model}
+          onSelect={(id) => { commitModel(id); setPickerOpen(false) }}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
     </div>
   )
 }
